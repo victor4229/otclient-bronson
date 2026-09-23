@@ -23,6 +23,7 @@
 #include "resourcemanager.h"
 
 #include <physfs.h>
+#include <fstream>
 
 #include "filestream.h"
 #include "graphicalapplication.h"
@@ -1189,23 +1190,33 @@ void ResourceManager::updateExecutable(std::string fileName)
     if (!dFile)
         g_logger.fatal("Cannot find executable: {} in downloads", fileName);
 
-    const auto& oldWriteDir = getWriteDir();
-    setWriteDir(getWorkDir());
+    // Bronson: o executavel novo fica SEMPRE com o nome original (sem "-<hora>"), para
+    // os atalhos nao quebrarem. O que esta rodando e renomeado para "<nome>-<hora>"
+    // (o Windows permite renomear exe em uso) e o launchCorrect apaga no proximo start.
     const std::filesystem::path path(m_binaryPath);
-    const auto newBinary = path.stem().string() + "-" + std::to_string(time(nullptr)) + path.extension().string();
-    g_logger.info("Updating binary file: {}", newBinary);
-    PHYSFS_file* file = PHYSFS_openWrite(newBinary.c_str());
-    if (!file) {
-        return g_logger.fatal(
-            "Can't open {} for writing: {}",
-            newBinary,
-            PHYSFS_getErrorByCode(PHYSFS_getLastErrorCode())
-        );
+    std::string stem = path.stem().string();
+    if (const auto dash = stem.find('-'); dash != std::string::npos)
+        stem = stem.substr(0, dash);
+    const auto target = path.parent_path() / (stem + path.extension().string());
+    const auto parked = path.parent_path() / (stem + "-" + std::to_string(time(nullptr)) + path.extension().string());
+    g_logger.info("Updating binary file: {}", target.string());
+
+    std::error_code ec;
+    if (std::filesystem::exists(target, ec)) {
+        std::filesystem::rename(target, parked, ec);
+        if (ec)
+            return g_logger.fatal("Can't rename {} to {}: {}", target.string(), parked.string(), ec.message());
     }
 
-    PHYSFS_writeBytes(file, dFile->response.data(), dFile->response.size());
-    PHYSFS_close(file);
-    setWriteDir(oldWriteDir);
+    std::ofstream out(target, std::ios::binary | std::ios::trunc);
+    if (!out)
+        return g_logger.fatal("Can't open {} for writing", target.string());
+    out.write(dFile->response.data(), static_cast<std::streamsize>(dFile->response.size()));
+    out.close();
+    if (!out)
+        return g_logger.fatal("Can't write {}", target.string());
+
+    m_binaryPath = target; // restart() abre o nome original
 
 #endif
 }

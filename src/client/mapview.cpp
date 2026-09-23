@@ -192,11 +192,11 @@ void MapView::drawFloor()
         if (m_crosshairTexture && m_mousePosition.isValid()) {
             auto point = transformPositionTo2D(m_mousePosition);
             // Bronson: com criatura no tile, o crosshair acompanha o quadrado de alvo dela
-            // (mesmo deslocamento de Tile::drawCreature + Creature::draw: elevacao, andar e
-            // displacement do .dat). No 8.60 a criatura fica 8px acima/esquerda do tile.
+            // (Creature::draw), centralizado no SQM: segue o andar e a elevacao, sem o
+            // displacement do .dat.
             if (const auto& tile = g_map.getTile(m_mousePosition)) {
                 if (const auto& creature = tile->getTopCreature()) {
-                    point += (creature->getWalkOffset() - creature->getDisplacement() - Point(creature->getDrawElevation())) * g_drawPool.getScaleFactor();
+                    point += (creature->getWalkOffset() - Point(creature->getDrawElevation())) * g_drawPool.getScaleFactor();
                 }
             }
             const auto& crosshairRect = Rect(point, m_tileSize, m_tileSize);

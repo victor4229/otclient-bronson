@@ -24,6 +24,8 @@
 
 #include <physfs.h>
 #include <fstream>
+#include <chrono>
+#include <thread>
 
 #include "filestream.h"
 #include "graphicalapplication.h"
@@ -1191,17 +1193,24 @@ void ResourceManager::updateExecutable(std::string fileName)
         g_logger.fatal("Cannot find executable: {} in downloads", fileName);
 
     // Bronson: o executavel novo fica SEMPRE com o nome original (sem "-<hora>"), para
-    // os atalhos nao quebrarem. O que esta rodando e renomeado para "<nome>-<hora>"
-    // (o Windows permite renomear exe em uso) e o launchCorrect apaga no proximo start.
+    // os atalhos nao quebrarem e a pasta ter so os dois .exe. O que esta rodando e
+    // renomeado para "<nome>.exe.old" (nao e .exe; o Windows permite renomear exe em
+    // uso) e o launchCorrect apaga no proximo start.
     const std::filesystem::path path(m_binaryPath);
     std::string stem = path.stem().string();
     if (const auto dash = stem.find('-'); dash != std::string::npos)
         stem = stem.substr(0, dash);
     const auto target = path.parent_path() / (stem + path.extension().string());
-    const auto parked = path.parent_path() / (stem + "-" + std::to_string(time(nullptr)) + path.extension().string());
+    auto parked = target;
+    parked += ".old";
     g_logger.info("Updating binary file: {}", target.string());
 
     std::error_code ec;
+    std::filesystem::remove(parked, ec); // sobra de uma atualizacao anterior
+    if (std::filesystem::exists(parked, ec)) {
+        parked = target;
+        parked += "." + std::to_string(time(nullptr)) + ".old";
+    }
     if (std::filesystem::exists(target, ec)) {
         std::filesystem::rename(target, parked, ec);
         if (ec)
@@ -1235,6 +1244,29 @@ bool ResourceManager::launchCorrect(const std::vector<std::string>& args) { // c
     };
 
     auto fileName2 = normalizeName(m_binaryPath.stem().string());
+
+    // Bronson: apaga o executavel antigo guardado pelo updateExecutable
+    // ("<nome>.exe.old" / "<nome>.exe.<hora>.old"). O processo antigo pode ainda estar
+    // fechando: tenta por ate ~3 s; se nao der, fica para o proximo start.
+    {
+        const auto prefix = m_binaryPath.filename().string();
+        for (int tentativa = 0; tentativa < 30; ++tentativa) {
+            bool sobrou = false;
+            std::error_code dirEc;
+            for (auto it = std::filesystem::directory_iterator(m_binaryPath.parent_path(), dirEc);
+                 !dirEc && it != std::filesystem::directory_iterator(); it.increment(dirEc)) {
+                const auto name = it->path().filename().string();
+                if (name.size() > prefix.size() && name.starts_with(prefix) && name.ends_with(".old")) {
+                    std::error_code rmEc;
+                    if (!std::filesystem::remove(it->path(), rmEc) && rmEc)
+                        sobrou = true;
+                }
+            }
+            if (!sobrou)
+                break;
+            std::this_thread::sleep_for(std::chrono::milliseconds(100));
+        }
+    }
 
     const std::filesystem::path path(m_binaryPath.parent_path());
     std::error_code ec;

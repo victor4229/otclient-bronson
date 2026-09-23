@@ -1,0 +1,17 @@
+# Build Windows (OpenGL e DirectX) da versao Bronson: OTClient 4.1 oficial + crosshair
+# alinhado com a criatura (src/client/mapview.cpp). Ver ADR 0022 do client-bronson.
+name: bronson-windows
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [bronson]
+
+permissions:
+  contents: read
+  packages: read
+
+jobs:
+  windows:
+    uses: ./.github/workflows/reusable-build-windows.yml
+    secrets: inherit
